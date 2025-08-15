@@ -1,0 +1,504 @@
+From git@z Thu Jan  1 00:00:00 1970
+Subject: [PATCH 1/6] PCI/ASPM: Fix the behavior of pci_enable_link_state*()
+ APIs
+From: Manivannan Sadhasivam <manivannan.sadhasivam@oss.qualcomm.com>
+Date: Wed, 16 Jul 2025 18:26:20 +0530
+Message-Id: <20250716-ath-aspm-fix-v1-1-dd3e62c1b692@oss.qualcomm.com>
+MIME-Version: 1.0
+Content-Type: text/plain; charset="utf-8"
+Content-Transfer-Encoding: 8bit
+
+pci_enable_link_state() and pci_enable_link_state_locked() APIs are
+supposed to be symmectric with pci_disable_link_state() and
+pci_disable_link_state_locked() APIs.
+
+But unfortunately, they are not symmetric. This behavior was mentioned in
+the kernel-doc of these APIs:
+
+" Clear and set the default device link state..."
+
+and
+
+"Also note that this does not enable states disabled by
+pci_disable_link_state()"
+
+These APIs won't enable all the states specified by the 'state' parameter,
+but only enable the ones not previously disabled by the
+pci_disable_link_state*() APIs. But this behavior doesn't align with the
+naming of these APIs, as they give the impression that these APIs will
+enable all the specified states.
+
+To resolve this ambiguity, allow these APIs to enable the specified states,
+regardeless of whether they were previously disabled or not. This is
+accomplished by clearing the previously disabled states from the
+'link::aspm_disable' parameter in __pci_enable_link_state() helper. Also,
+reword the kernel-doc to reflect this behavior.
+
+The current callers of pci_enable_link_state_locked() APIs (vmd and
+pcie-qcom) did not disable the ASPM states before calling this API. So it
+is evident that they do not depend on the previous behavior of this API and
+intend to enable all the specified states.
+
+And the other API, pci_enable_link_state() doesn't have a caller for now,
+but will be used by the 'atheros' WLAN drivers in the subsequent commits.
+
+Suggested-by: Ilpo Järvinen <ilpo.jarvinen@linux.intel.com>
+Co-developed-by: Krishna Chaitanya Chundru <krishna.chundru@oss.qualcomm.com>
+Signed-off-by: Krishna Chaitanya Chundru <krishna.chundru@oss.qualcomm.com>
+Signed-off-by: Manivannan Sadhasivam <manivannan.sadhasivam@oss.qualcomm.com>
+---
+ drivers/pci/pcie/aspm.c | 33 ++++++++++++++++++---------------
+ 1 file changed, 18 insertions(+), 15 deletions(-)
+
+diff --git a/drivers/pci/pcie/aspm.c b/drivers/pci/pcie/aspm.c
+index 29fcb0689a918f9cb123691e1680de5a1af2c115..ec63880057942cef9ffbf3f67dcd87ee3d2df17d 100644
+--- a/drivers/pci/pcie/aspm.c
++++ b/drivers/pci/pcie/aspm.c
+@@ -1453,6 +1453,7 @@ static int __pci_enable_link_state(struct pci_dev *pdev, int state, bool locked)
+ 		down_read(&pci_bus_sem);
+ 	mutex_lock(&aspm_lock);
+ 	link->aspm_default = pci_calc_aspm_enable_mask(state);
++	link->aspm_disable &= ~state;
+ 	pcie_config_aspm_link(link, policy_to_aspm_state(link));
+ 
+ 	link->clkpm_default = (state & PCIE_LINK_STATE_CLKPM) ? 1 : 0;
+@@ -1465,17 +1466,18 @@ static int __pci_enable_link_state(struct pci_dev *pdev, int state, bool locked)
+ }
+ 
+ /**
+- * pci_enable_link_state - Clear and set the default device link state so that
+- * the link may be allowed to enter the specified states. Note that if the
+- * BIOS didn't grant ASPM control to the OS, this does nothing because we can't
+- * touch the LNKCTL register. Also note that this does not enable states
+- * disabled by pci_disable_link_state(). Return 0 or a negative errno.
++ * pci_enable_link_state - Enable device's link state
++ * @pdev: PCI device
++ * @state: Mask of ASPM link states to enable
++ *
++ * Enable device's link state, so the link will enter the specified states.
++ * Note that if the BIOS didn't grant ASPM control to the OS, this does
++ * nothing because we can't touch the LNKCTL register.
+  *
+  * Note: Ensure devices are in D0 before enabling PCI-PM L1 PM Substates, per
+  * PCIe r6.0, sec 5.5.4.
+  *
+- * @pdev: PCI device
+- * @state: Mask of ASPM link states to enable
++ * Return: 0 on success, a negative errno otherwise.
+  */
+ int pci_enable_link_state(struct pci_dev *pdev, int state)
+ {
+@@ -1484,19 +1486,20 @@ int pci_enable_link_state(struct pci_dev *pdev, int state)
+ EXPORT_SYMBOL(pci_enable_link_state);
+ 
+ /**
+- * pci_enable_link_state_locked - Clear and set the default device link state
+- * so that the link may be allowed to enter the specified states. Note that if
+- * the BIOS didn't grant ASPM control to the OS, this does nothing because we
+- * can't touch the LNKCTL register. Also note that this does not enable states
+- * disabled by pci_disable_link_state(). Return 0 or a negative errno.
++ * pci_enable_link_state_locked - Enable device's link state
++ * @pdev: PCI device
++ * @state: Mask of ASPM link states to enable
++ *
++ * Enable device's link state, so the link will enter the specified states.
++ * Note that if the BIOS didn't grant ASPM control to the OS, this does
++ * nothing because we can't touch the LNKCTL register.
+  *
+  * Note: Ensure devices are in D0 before enabling PCI-PM L1 PM Substates, per
+  * PCIe r6.0, sec 5.5.4.
+  *
+- * @pdev: PCI device
+- * @state: Mask of ASPM link states to enable
+- *
+  * Context: Caller holds pci_bus_sem read lock.
++ *
++ * Return: 0 on success, a negative errno otherwise.
+  */
+ int pci_enable_link_state_locked(struct pci_dev *pdev, int state)
+ {
+-- 
+2.45.2
+
+From git@z Thu Jan  1 00:00:00 1970
+Subject: [PATCH 2/6] PCI/ASPM: Transition the device to D0 (if required)
+ inside pci_enable_link_state_locked() API
+From: Manivannan Sadhasivam <manivannan.sadhasivam@oss.qualcomm.com>
+Date: Wed, 16 Jul 2025 18:26:21 +0530
+Message-Id: <20250716-ath-aspm-fix-v1-2-dd3e62c1b692@oss.qualcomm.com>
+MIME-Version: 1.0
+Content-Type: text/plain; charset="utf-8"
+Content-Transfer-Encoding: 7bit
+
+Both of the current callers of the pci_enable_link_state_locked() API
+transition the device to D0 before calling. This aligns with the PCIe spec
+r6.0, sec 5.5.4:
+
+"If setting either or both of the enable bits for PCI-PM L1 PM Substates,
+both ports must be configured as described in this section while in D0."
+
+But it looks redundant to let the callers transition the device to D0. So
+move the logic inside the API and perform D0 transition only if the PCI-PM
+L1 Substates are getting enabled.
+
+Signed-off-by: Manivannan Sadhasivam <manivannan.sadhasivam@oss.qualcomm.com>
+---
+ drivers/pci/controller/dwc/pcie-qcom.c |  5 -----
+ drivers/pci/controller/vmd.c           |  5 -----
+ drivers/pci/pcie/aspm.c                | 22 ++++++++++++++++++----
+ 3 files changed, 18 insertions(+), 14 deletions(-)
+
+diff --git a/drivers/pci/controller/dwc/pcie-qcom.c b/drivers/pci/controller/dwc/pcie-qcom.c
+index c789e3f856550bcfa1ce09962ba9c086d117de05..204f87607c0bc1ce31299aa5a5763b564ddeda29 100644
+--- a/drivers/pci/controller/dwc/pcie-qcom.c
++++ b/drivers/pci/controller/dwc/pcie-qcom.c
+@@ -1018,11 +1018,6 @@ static int qcom_pcie_post_init_2_7_0(struct qcom_pcie *pcie)
+ 
+ static int qcom_pcie_enable_aspm(struct pci_dev *pdev, void *userdata)
+ {
+-	/*
+-	 * Downstream devices need to be in D0 state before enabling PCI PM
+-	 * substates.
+-	 */
+-	pci_set_power_state_locked(pdev, PCI_D0);
+ 	pci_enable_link_state_locked(pdev, PCIE_LINK_STATE_ALL);
+ 
+ 	return 0;
+diff --git a/drivers/pci/controller/vmd.c b/drivers/pci/controller/vmd.c
+index 8df064b62a2ff3e22dd8507a66783ca6c6a8b777..cf11036dd20cbae5d403739b226452ce17c4cb7f 100644
+--- a/drivers/pci/controller/vmd.c
++++ b/drivers/pci/controller/vmd.c
+@@ -765,11 +765,6 @@ static int vmd_pm_enable_quirk(struct pci_dev *pdev, void *userdata)
+ 	pci_info(pdev, "VMD: Default LTR value set by driver\n");
+ 
+ out_state_change:
+-	/*
+-	 * Ensure devices are in D0 before enabling PCI-PM L1 PM Substates, per
+-	 * PCIe r6.0, sec 5.5.4.
+-	 */
+-	pci_set_power_state_locked(pdev, PCI_D0);
+ 	pci_enable_link_state_locked(pdev, PCIE_LINK_STATE_ALL);
+ 	return 0;
+ }
+diff --git a/drivers/pci/pcie/aspm.c b/drivers/pci/pcie/aspm.c
+index ec63880057942cef9ffbf3f67dcd87ee3d2df17d..c56553de953c158cf9e8bf54c6b358a9a81a2691 100644
+--- a/drivers/pci/pcie/aspm.c
++++ b/drivers/pci/pcie/aspm.c
+@@ -1474,13 +1474,20 @@ static int __pci_enable_link_state(struct pci_dev *pdev, int state, bool locked)
+  * Note that if the BIOS didn't grant ASPM control to the OS, this does
+  * nothing because we can't touch the LNKCTL register.
+  *
+- * Note: Ensure devices are in D0 before enabling PCI-PM L1 PM Substates, per
+- * PCIe r6.0, sec 5.5.4.
++ * Note: The device will be transitioned to D0 state if the PCI-PM L1 Substates
++ * are getting enabled.
+  *
+  * Return: 0 on success, a negative errno otherwise.
+  */
+ int pci_enable_link_state(struct pci_dev *pdev, int state)
+ {
++	/*
++	 * Ensure the device is in D0 before enabling PCI-PM L1 PM Substates, per
++	 * PCIe r6.0, sec 5.5.4.
++	 */
++	if (FIELD_GET(PCIE_LINK_STATE_L1_SS_PCIPM, state))
++		pci_set_power_state(pdev, PCI_D0);
++
+ 	return __pci_enable_link_state(pdev, state, false);
+ }
+ EXPORT_SYMBOL(pci_enable_link_state);
+@@ -1494,8 +1501,8 @@ EXPORT_SYMBOL(pci_enable_link_state);
+  * Note that if the BIOS didn't grant ASPM control to the OS, this does
+  * nothing because we can't touch the LNKCTL register.
+  *
+- * Note: Ensure devices are in D0 before enabling PCI-PM L1 PM Substates, per
+- * PCIe r6.0, sec 5.5.4.
++ * Note: The device will be transitioned to D0 state if the PCI-PM L1 Substates
++ * are getting enabled.
+  *
+  * Context: Caller holds pci_bus_sem read lock.
+  *
+@@ -1505,6 +1512,13 @@ int pci_enable_link_state_locked(struct pci_dev *pdev, int state)
+ {
+ 	lockdep_assert_held_read(&pci_bus_sem);
+ 
++	/*
++	 * Ensure the device is in D0 before enabling PCI-PM L1 PM Substates, per
++	 * PCIe r6.0, sec 5.5.4.
++	 */
++	if (FIELD_GET(PCIE_LINK_STATE_L1_SS_PCIPM, state))
++		pci_set_power_state(pdev, PCI_D0);
++
+ 	return __pci_enable_link_state(pdev, state, true);
+ }
+ EXPORT_SYMBOL(pci_enable_link_state_locked);
+-- 
+2.45.2
+
+From git@z Thu Jan  1 00:00:00 1970
+Subject: [PATCH 3/6] PCI/ASPM: Improve the kernel-doc for
+ pci_disable_link_state*() APIs
+From: Manivannan Sadhasivam <manivannan.sadhasivam@oss.qualcomm.com>
+Date: Wed, 16 Jul 2025 18:26:22 +0530
+Message-Id: <20250716-ath-aspm-fix-v1-3-dd3e62c1b692@oss.qualcomm.com>
+MIME-Version: 1.0
+Content-Type: text/plain; charset="utf-8"
+Content-Transfer-Encoding: 7bit
+
+Add kernel-doc for pci_disable_link_state_locked() API and fix the
+kernel-doc for pci_disable_link_state() API.
+
+Signed-off-by: Manivannan Sadhasivam <manivannan.sadhasivam@oss.qualcomm.com>
+---
+ drivers/pci/pcie/aspm.c | 25 ++++++++++++++++++++-----
+ 1 file changed, 20 insertions(+), 5 deletions(-)
+
+diff --git a/drivers/pci/pcie/aspm.c b/drivers/pci/pcie/aspm.c
+index c56553de953c158cf9e8bf54c6b358a9a81a2691..4d30e894198c40a168fc03626270b361d5124b67 100644
+--- a/drivers/pci/pcie/aspm.c
++++ b/drivers/pci/pcie/aspm.c
+@@ -1409,6 +1409,19 @@ static int __pci_disable_link_state(struct pci_dev *pdev, int state, bool locked
+ 	return 0;
+ }
+ 
++/**
++ * pci_disable_link_state_locked - Disable device's link state
++ * @pdev: PCI device
++ * @state: ASPM link state to disable
++ *
++ * Disable device's link state, so the link will never enter specific states.
++ * Note that if the BIOS didn't grant ASPM control to the OS, this does nothing
++ * because we can't touch the LNKCTL register.
++ *
++ * Context: Caller holds pci_bus_sem read lock.
++ *
++ * Return: 0 on success, a negative errno otherwise.
++ */
+ int pci_disable_link_state_locked(struct pci_dev *pdev, int state)
+ {
+ 	lockdep_assert_held_read(&pci_bus_sem);
+@@ -1418,13 +1431,15 @@ int pci_disable_link_state_locked(struct pci_dev *pdev, int state)
+ EXPORT_SYMBOL(pci_disable_link_state_locked);
+ 
+ /**
+- * pci_disable_link_state - Disable device's link state, so the link will
+- * never enter specific states.  Note that if the BIOS didn't grant ASPM
+- * control to the OS, this does nothing because we can't touch the LNKCTL
+- * register. Returns 0 or a negative errno.
+- *
++ * pci_disable_link_state - Disable device's link state
+  * @pdev: PCI device
+  * @state: ASPM link state to disable
++ *
++ * Disable device's link state, so the link will never enter specific states.
++ * Note that if the BIOS didn't grant ASPM control to the OS, this does nothing
++ * because we can't touch the LNKCTL register.
++ *
++ * Return: 0 on success, a negative errno otherwise.
+  */
+ int pci_disable_link_state(struct pci_dev *pdev, int state)
+ {
+-- 
+2.45.2
+
+From git@z Thu Jan  1 00:00:00 1970
+Subject: [PATCH 4/6] wifi: ath12k: Use pci_{enable/disable}_link_state()
+ APIs to enable/disable ASPM states
+From: Manivannan Sadhasivam <manivannan.sadhasivam@oss.qualcomm.com>
+Date: Wed, 16 Jul 2025 18:26:23 +0530
+Message-Id: <20250716-ath-aspm-fix-v1-4-dd3e62c1b692@oss.qualcomm.com>
+MIME-Version: 1.0
+Content-Type: text/plain; charset="utf-8"
+Content-Transfer-Encoding: 8bit
+
+It is not recommended to enable/disable the ASPM states on the back of the
+PCI core directly using the LNKCTL register. It will break the PCI core's
+knowledge about the device ASPM states. So use the APIs exposed by the PCI
+core to enable/disable ASPM states.
+
+Tested-on: WCN7850 hw2.0 PCI WLAN.HMT.1.0.c5-00481-QCAHMTSWPL_V1.0_V2.0_SILICONZ-3
+
+Reported-by: Qiang Yu <qiang.yu@oss.qualcomm.com>
+Signed-off-by: Manivannan Sadhasivam <manivannan.sadhasivam@oss.qualcomm.com>
+Link: https://lore.kernel.org/all/CANUX_P3F5YhbZX3WGU-j1AGpbXb_T9Bis2ErhvKkFMtDvzatVQ@mail.gmail.com/
+Link: https://lore.kernel.org/all/20230511131441.45704-1-ilpo.jarvinen@linux.intel.com/
+Signed-off-by: Ilpo Järvinen <ilpo.jarvinen@linux.intel.com>
+---
+ drivers/net/wireless/ath/ath.h        | 14 ++++++++++++++
+ drivers/net/wireless/ath/ath12k/pci.c | 10 ++++------
+ 2 files changed, 18 insertions(+), 6 deletions(-)
+
+diff --git a/drivers/net/wireless/ath/ath.h b/drivers/net/wireless/ath/ath.h
+index 34654f710d8a1e63f65a47d4602e2035262a4d9e..ef685123b66bf4f41428fec67c1967f242a9ef27 100644
+--- a/drivers/net/wireless/ath/ath.h
++++ b/drivers/net/wireless/ath/ath.h
+@@ -21,6 +21,8 @@
+ #include <linux/skbuff.h>
+ #include <linux/if_ether.h>
+ #include <linux/spinlock.h>
++#include <linux/pci.h>
++#include <linux/pci_regs.h>
+ #include <net/mac80211.h>
+ 
+ /*
+@@ -336,4 +338,16 @@ static inline const char *ath_bus_type_to_string(enum ath_bus_type bustype)
+ 	return ath_bus_type_strings[bustype];
+ }
+ 
++static inline int ath_pci_aspm_state(u16 lnkctl)
++{
++	int state = 0;
++
++	if (lnkctl & PCI_EXP_LNKCTL_ASPM_L0S)
++		state |= PCIE_LINK_STATE_L0S;
++	if (lnkctl & PCI_EXP_LNKCTL_ASPM_L1)
++		state |= PCIE_LINK_STATE_L1;
++
++	return state;
++}
++
+ #endif /* ATH_H */
+diff --git a/drivers/net/wireless/ath/ath12k/pci.c b/drivers/net/wireless/ath/ath12k/pci.c
+index 489d546390fcdab8f615cc9184006a958d9f140a..a5e11509e3ab8faad6638ff78ce6a8a5e9c3cbbd 100644
+--- a/drivers/net/wireless/ath/ath12k/pci.c
++++ b/drivers/net/wireless/ath/ath12k/pci.c
+@@ -16,6 +16,8 @@
+ #include "mhi.h"
+ #include "debug.h"
+ 
++#include "../ath.h"
++
+ #define ATH12K_PCI_BAR_NUM		0
+ #define ATH12K_PCI_DMA_MASK		36
+ 
+@@ -928,8 +930,7 @@ static void ath12k_pci_aspm_disable(struct ath12k_pci *ab_pci)
+ 		   u16_get_bits(ab_pci->link_ctl, PCI_EXP_LNKCTL_ASPM_L1));
+ 
+ 	/* disable L0s and L1 */
+-	pcie_capability_clear_word(ab_pci->pdev, PCI_EXP_LNKCTL,
+-				   PCI_EXP_LNKCTL_ASPMC);
++	pci_disable_link_state(ab_pci->pdev, PCIE_LINK_STATE_L0S | PCIE_LINK_STATE_L1);
+ 
+ 	set_bit(ATH12K_PCI_ASPM_RESTORE, &ab_pci->flags);
+ }
+@@ -958,10 +959,7 @@ static void ath12k_pci_aspm_restore(struct ath12k_pci *ab_pci)
+ {
+ 	if (ab_pci->ab->hw_params->supports_aspm &&
+ 	    test_and_clear_bit(ATH12K_PCI_ASPM_RESTORE, &ab_pci->flags))
+-		pcie_capability_clear_and_set_word(ab_pci->pdev, PCI_EXP_LNKCTL,
+-						   PCI_EXP_LNKCTL_ASPMC,
+-						   ab_pci->link_ctl &
+-						   PCI_EXP_LNKCTL_ASPMC);
++		pci_enable_link_state(ab_pci->pdev, ath_pci_aspm_state(ab_pci->link_ctl));
+ }
+ 
+ static void ath12k_pci_cancel_workqueue(struct ath12k_base *ab)
+-- 
+2.45.2
+
+From git@z Thu Jan  1 00:00:00 1970
+Subject: [PATCH 5/6] wifi: ath11k: Use pci_{enable/disable}_link_state()
+ APIs to enable/disable ASPM states
+From: Manivannan Sadhasivam <manivannan.sadhasivam@oss.qualcomm.com>
+Date: Wed, 16 Jul 2025 18:26:24 +0530
+Message-Id: <20250716-ath-aspm-fix-v1-5-dd3e62c1b692@oss.qualcomm.com>
+MIME-Version: 1.0
+Content-Type: text/plain; charset="utf-8"
+Content-Transfer-Encoding: 7bit
+
+It is not recommended to enable/disable the ASPM states on the back of the
+PCI core directly using the LNKCTL register. It will break the PCI core's
+knowledge about the device ASPM states. So use the APIs exposed by the PCI
+core to enable/disable ASPM states.
+
+Signed-off-by: Manivannan Sadhasivam <manivannan.sadhasivam@oss.qualcomm.com>
+---
+ drivers/net/wireless/ath/ath11k/pci.c | 10 ++++------
+ 1 file changed, 4 insertions(+), 6 deletions(-)
+
+diff --git a/drivers/net/wireless/ath/ath11k/pci.c b/drivers/net/wireless/ath/ath11k/pci.c
+index 78444f8ea15356f1f4c90a496efd52780499bfb2..cec399765e04104ddcfcee5003c209e14c7d4ca0 100644
+--- a/drivers/net/wireless/ath/ath11k/pci.c
++++ b/drivers/net/wireless/ath/ath11k/pci.c
+@@ -19,6 +19,8 @@
+ #include "pcic.h"
+ #include "qmi.h"
+ 
++#include "../ath.h"
++
+ #define ATH11K_PCI_BAR_NUM		0
+ #define ATH11K_PCI_DMA_MASK		36
+ #define ATH11K_PCI_COHERENT_DMA_MASK	32
+@@ -597,8 +599,7 @@ static void ath11k_pci_aspm_disable(struct ath11k_pci *ab_pci)
+ 		   u16_get_bits(ab_pci->link_ctl, PCI_EXP_LNKCTL_ASPM_L1));
+ 
+ 	/* disable L0s and L1 */
+-	pcie_capability_clear_word(ab_pci->pdev, PCI_EXP_LNKCTL,
+-				   PCI_EXP_LNKCTL_ASPMC);
++	pci_disable_link_state(ab_pci->pdev, PCIE_LINK_STATE_L0S | PCIE_LINK_STATE_L1);
+ 
+ 	set_bit(ATH11K_PCI_ASPM_RESTORE, &ab_pci->flags);
+ }
+@@ -606,10 +607,7 @@ static void ath11k_pci_aspm_disable(struct ath11k_pci *ab_pci)
+ static void ath11k_pci_aspm_restore(struct ath11k_pci *ab_pci)
+ {
+ 	if (test_and_clear_bit(ATH11K_PCI_ASPM_RESTORE, &ab_pci->flags))
+-		pcie_capability_clear_and_set_word(ab_pci->pdev, PCI_EXP_LNKCTL,
+-						   PCI_EXP_LNKCTL_ASPMC,
+-						   ab_pci->link_ctl &
+-						   PCI_EXP_LNKCTL_ASPMC);
++		pci_enable_link_state(ab_pci->pdev, ath_pci_aspm_state(ab_pci->link_ctl));
+ }
+ 
+ #ifdef CONFIG_DEV_COREDUMP
+-- 
+2.45.2
+
+From git@z Thu Jan  1 00:00:00 1970
+Subject: [PATCH 6/6] wifi: ath10k: Use pci_{enable/disable}_link_state()
+ APIs to enable/disable ASPM states
+From: Manivannan Sadhasivam <manivannan.sadhasivam@oss.qualcomm.com>
+Date: Wed, 16 Jul 2025 18:26:25 +0530
+Message-Id: <20250716-ath-aspm-fix-v1-6-dd3e62c1b692@oss.qualcomm.com>
+MIME-Version: 1.0
+Content-Type: text/plain; charset="utf-8"
+Content-Transfer-Encoding: 7bit
+
+It is not recommended to enable/disable the ASPM states on the back of the
+PCI core directly using the LNKCTL register. It will break the PCI core's
+knowledge about the device ASPM states. So use the APIs exposed by the PCI
+core to enable/disable ASPM states.
+
+Signed-off-by: Manivannan Sadhasivam <manivannan.sadhasivam@oss.qualcomm.com>
+---
+ drivers/net/wireless/ath/ath10k/pci.c | 7 ++-----
+ 1 file changed, 2 insertions(+), 5 deletions(-)
+
+diff --git a/drivers/net/wireless/ath/ath10k/pci.c b/drivers/net/wireless/ath/ath10k/pci.c
+index 1e6d43285138ece619b9d7dc49f113a439e2085d..b20ab535a850ef1f5fe606bd7e7a230ebcd894c8 100644
+--- a/drivers/net/wireless/ath/ath10k/pci.c
++++ b/drivers/net/wireless/ath/ath10k/pci.c
+@@ -1965,9 +1965,7 @@ static int ath10k_pci_hif_start(struct ath10k *ar)
+ 	ath10k_pci_irq_enable(ar);
+ 	ath10k_pci_rx_post(ar);
+ 
+-	pcie_capability_clear_and_set_word(ar_pci->pdev, PCI_EXP_LNKCTL,
+-					   PCI_EXP_LNKCTL_ASPMC,
+-					   ar_pci->link_ctl & PCI_EXP_LNKCTL_ASPMC);
++	pci_enable_link_state(ar_pci->pdev, ath_pci_aspm_state(ar_pci->link_ctl));
+ 
+ 	return 0;
+ }
+@@ -2824,8 +2822,7 @@ static int ath10k_pci_hif_power_up(struct ath10k *ar,
+ 
+ 	pcie_capability_read_word(ar_pci->pdev, PCI_EXP_LNKCTL,
+ 				  &ar_pci->link_ctl);
+-	pcie_capability_clear_word(ar_pci->pdev, PCI_EXP_LNKCTL,
+-				   PCI_EXP_LNKCTL_ASPMC);
++	pci_disable_link_state(ar_pci->pdev, PCIE_LINK_STATE_L0S | PCIE_LINK_STATE_L1);
+ 
+ 	/*
+ 	 * Bring the target up cleanly.
+-- 
+2.45.2
+
