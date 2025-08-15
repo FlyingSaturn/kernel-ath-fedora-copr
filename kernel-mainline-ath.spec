@@ -62,7 +62,7 @@ cp %{SOURCE1} ./.config
 make olddefconfig
 #NPROCS=$(/usr/bin/getconf _NPROCESSORS_ONLN)
 BUILD_DATE=$(date +%Y%m%d)
-make -j$(nproc) LOCALVERSION=-patchtest${BUILD_DATE}
+make -j$(nproc) rpm-pkg LOCALVERSION=-patchtest${BUILD_DATE}
 
 %install
 mkdir -p %{buildroot}/output
