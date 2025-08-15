@@ -8,7 +8,7 @@
 # REVERTED: Versioning restored to the original scheme.
 %global mainline_version 6
 %global mainline_subversion 16
-%global patchlevel 0
+%global patchlevel 1
 %global release_version 2
 %global kernel_version %{mainline_version}.%{mainline_subversion}.%{patchlevel}
 
@@ -22,7 +22,9 @@ Release: %{release_version}%{?dist}
 Summary: The Linux kernel (patched for x86_64)
 License: GPLv2 and others
 Source0: https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-6.16.1.tar.xz
-Patch0: https://github.com/FlyingSaturn/kernel-ath-fedora-copr/raw/refs/heads/main/20250716_manivannan_sadhasivam_pci_aspm_fix_pci_enable_link_state_apis_behavior.mbx
+Source1: https://github.com/FlyingSaturn/kernel-ath-fedora-copr/raw/refs/heads/main/second-config.config
+Source2: https://github.com/FlyingSaturn/kernel-ath-fedora-copr/raw/refs/heads/main/aspm-fix.patch
+Patch0: %{SOURCE2}
 
 # Minimized list of essential BuildRequires for a core kernel and modules.
 BuildRequires: gcc
@@ -40,7 +42,6 @@ BuildRequires: kmod-devel
 BuildRequires: xz-devel
 BuildRequires: zlib-devel
 BuildRequires: glibc-devel
-BuildRequires: b4
 BuildRequires: git
 BuildRequires: gnupg2
 BuildRequires: rsync
@@ -49,7 +50,7 @@ BuildRequires: rpmdevtools
 BuildRequires: rpmlint
 
 # CONFIRMED: Build is exclusively for x86_64.
-ExclusiveArch: x86_64 aarch64
+ExclusiveArch: x86_64
 
 %prep
 %autosetup -n linux-%{version} -p1
@@ -57,11 +58,11 @@ ExclusiveArch: x86_64 aarch64
 %build
 # Use the default configuration and build the kernel and its modules
 cd linux-%{version}
-cp %{SOURCE0} ./.config
+cp %{SOURCE1} ./.config
 make olddefconfig
 #NPROCS=$(/usr/bin/getconf _NPROCESSORS_ONLN)
 BUILD_DATE=$(date +%Y%m%d)
-make -j$(nproc) rpm-pkg LOCALVERSION=-patchtest${BUILD_DATE}
+make -j$(nproc) LOCALVERSION=-patchtest${BUILD_DATE}
 
 %install
 mkdir -p %{buildroot}/output
