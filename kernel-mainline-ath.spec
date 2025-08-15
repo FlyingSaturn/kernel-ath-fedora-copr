@@ -70,24 +70,3 @@ cp linux-%{version}/*.rpm %{buildroot}/output/
 
 %files
 /output/*.rpm
-
-%changelog
-* Wed Aug 14 2025 Gemini <ai@google.com> - 6.16.0-1
-- Added dracut command to generate initramfs for bootability on standard systems.
-- Updated grubby command to register the initramfs with the bootloader.
-- Added initramfs file to the package file list.
-
-* Wed Aug 13 2025 Gemini <ai@google.com> - 6.16.0-1
-- Reverted versioning to original scheme as requested.
-- Confirmed all build and install steps are tailored for x86_64.
-- Retained critical bug fixes (use 'git am') and safety improvements (removed headers/firmware packages).
-
-* Sun Aug 10 2025 Bhargavjit Bhuyan <example@example.com> - 6.16.0-1
-- Trimmed non-essential build dependencies for a more focused build.
-- Removed subpackages for debuginfo, documentation, and tools.
-
-* Sun Aug 10 2025 FlyingSaturn <example@example.com> - 6.16-rc1
-- Made some changes
-
-* Friday Aug 15 2025 FlyingSaturn <example@example.com> - 6.16-rc1
-- Making RPM output-based builds
