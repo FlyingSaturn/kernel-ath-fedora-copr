@@ -66,7 +66,7 @@ make -j$(nproc) LOCALVERSION=-patchtest${BUILD_DATE}
 
 %install
 mkdir -p %{buildroot}/output
-cp linux-%{version}/*.rpm %{buildroot}/output/
+cp *.rpm %{buildroot}/output/
 
 %files
 %{buildroot}/output/*.rpm
