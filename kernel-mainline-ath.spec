@@ -44,6 +44,7 @@ BuildRequires: zlib-devel
 BuildRequires: glibc-devel
 BuildRequires: git
 BuildRequires: gnupg2
+BuildRequires: openssl
 BuildRequires: rsync
 BuildRequires: dracut
 BuildRequires: rpmdevtools 
