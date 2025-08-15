@@ -68,7 +68,7 @@ mkdir -p %{buildroot}/output
 cp linux-%{version}/*.rpm %{buildroot}/output/
 
 %files
-/output/*.rpm
+%{buildroot}/output/*.rpm
 
 %changelog
 * Fri Aug 15 2025 FlyingSaturn and Bhargavjit Bhuyan <you@example.com> - 6.16.1-2
