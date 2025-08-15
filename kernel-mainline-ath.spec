@@ -21,6 +21,8 @@ Version: %{kernel_version}
 Release: %{release_version}%{?dist}
 Summary: The Linux kernel (patched for x86_64)
 License: GPLv2 and others
+Source0: https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-6.16.1.tar.xz
+Patch0: https://github.com/FlyingSaturn/kernel-ath-fedora-copr/raw/refs/heads/main/20250716_manivannan_sadhasivam_pci_aspm_fix_pci_enable_link_state_apis_behavior.mbx
 
 # Minimized list of essential BuildRequires for a core kernel and modules.
 BuildRequires: gcc
@@ -50,17 +52,11 @@ BuildRequires: rpmlint
 ExclusiveArch: x86_64 aarch64
 
 %prep
-git clone https://github.com/torvalds/linux.git
-cd linux
-git config --global user.name "FlyingSaturn"
-git config --global user.email "56539009+FlyingSaturn@users.noreply.github.com"
-git checkout -b aspm-patch 19272b37aa4f83ca52bdf9c16d5d81bdd1354494
-b4 am 20250716-ath-aspm-fix-v1-0-dd3e62c1b692@oss.qualcomm.com && mv *.mbx aspm-patch.mbx
-git apply aspm-patch.mbx
+%autosetup -n linux-%{version} -p1
 
 %build
 # Use the default configuration and build the kernel and its modules
-cd linux
+cd linux-%{version}
 cp %{SOURCE0} ./.config
 make olddefconfig
 #NPROCS=$(/usr/bin/getconf _NPROCESSORS_ONLN)
@@ -69,7 +65,7 @@ make -j$(nproc) rpm-pkg LOCALVERSION=-patchtest${BUILD_DATE}
 
 %install
 mkdir -p %{buildroot}/output
-cp linux/*.rpm %{buildroot}/output/
+cp linux-%{version}/*.rpm %{buildroot}/output/
 
 %files
 /output/*.rpm
