@@ -57,8 +57,6 @@ ExclusiveArch: x86_64
 
 %build
 # Use the default configuration and build the kernel and its modules
-ls
-cd linux-%{version}
 cp %{SOURCE1} ./.config
 make olddefconfig
 #NPROCS=$(/usr/bin/getconf _NPROCESSORS_ONLN)
