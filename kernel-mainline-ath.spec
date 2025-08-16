@@ -72,8 +72,11 @@ make olddefconfig
 BUILD_DATE=$(date +%Y%m%d)
 make -j$(nproc) binrpm-pkg LOCALVERSION=-patchtest${BUILD_DATE}
 
+%install
+mkdir -p %{buildroot}%{_rpmdir}/%{_arch}
+cp -a rpmbuild/RPMS/%{_arch}/*.rpm %{buildroot}%{_rpmdir}/%{_arch}/
+
 %files
-rpmbuild/RPMS/*.x86_64.rpm
 
 
 %changelog
