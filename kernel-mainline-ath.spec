@@ -50,6 +50,9 @@ BuildRequires: dracut
 BuildRequires: rpmdevtools 
 BuildRequires: rpmlint
 BuildRequires: hostname
+BuildRequires: elfutils-devel
+BuildRequires: dwarves
+BuildRequires: perl
 
 # CONFIRMED: Build is exclusively for x86_64.
 ExclusiveArch: x86_64
