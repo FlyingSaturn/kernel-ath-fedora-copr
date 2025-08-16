@@ -73,7 +73,7 @@ BUILD_DATE=$(date +%Y%m%d)
 make -j$(nproc) binrpm-pkg LOCALVERSION=-patchtest${BUILD_DATE}
 
 %files
-
+rpmbuild/RPMS/*.x86_64.rpm
 
 %changelog
 * Fri Aug 15 2025 FlyingSaturn and Bhargavjit Bhuyan <you@example.com> - 6.16.1-2
