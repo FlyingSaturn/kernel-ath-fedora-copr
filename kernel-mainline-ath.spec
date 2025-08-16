@@ -71,6 +71,7 @@ cp %{SOURCE1} ./.config
 make olddefconfig
 #NPROCS=$(/usr/bin/getconf _NPROCESSORS_ONLN)
 BUILD_DATE=$(date +%Y%m%d)
+ls
 make -j$(nproc) binrpm-pkg LOCALVERSION=-patchtest${BUILD_DATE}
 
 %files
