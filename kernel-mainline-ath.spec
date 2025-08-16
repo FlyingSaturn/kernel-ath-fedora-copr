@@ -49,6 +49,7 @@ BuildRequires: rsync
 BuildRequires: dracut
 BuildRequires: rpmdevtools 
 BuildRequires: rpmlint
+BuildRequires: hostname
 
 # CONFIRMED: Build is exclusively for x86_64.
 ExclusiveArch: x86_64
@@ -62,7 +63,7 @@ cp %{SOURCE1} ./.config
 make olddefconfig
 #NPROCS=$(/usr/bin/getconf _NPROCESSORS_ONLN)
 BUILD_DATE=$(date +%Y%m%d)
-make -j$(nproc) rpm-pkg LOCALVERSION=-patchtest${BUILD_DATE}
+make -j$(nproc) binrpm-pkg LOCALVERSION=-patchtest${BUILD_DATE}
 
 %files
 *.rpm
