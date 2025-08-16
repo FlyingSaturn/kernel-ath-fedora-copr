@@ -26,6 +26,9 @@ Source1: https://github.com/FlyingSaturn/kernel-ath-fedora-copr/raw/refs/heads/m
 Source2: https://github.com/FlyingSaturn/kernel-ath-fedora-copr/raw/refs/heads/main/aspm-fix.patch
 Patch0: %{SOURCE2}
 
+%description
+Custom-built mainline Linux kernel for x86_64 testing.
+
 # Minimized list of essential BuildRequires for a core kernel and modules.
 BuildRequires: gcc
 BuildRequires: make
@@ -56,6 +59,8 @@ BuildRequires: perl
 
 # CONFIRMED: Build is exclusively for x86_64.
 ExclusiveArch: x86_64
+
+
 
 %prep
 %autosetup -n linux-%{version} -p1
