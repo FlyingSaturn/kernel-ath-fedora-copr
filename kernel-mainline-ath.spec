@@ -74,7 +74,7 @@ make -j$(nproc) binrpm-pkg LOCALVERSION=-patchtest${BUILD_DATE}
 
 %install
 mkdir -p %{buildroot}%{_rpmdir}/%{_arch}
-cp -a rpmbuild/RPMS/%{_arch}/*.rpm %{buildroot}%{_rpmdir}/%{_arch}/
+cp -a rpmbuild/RPMS/*.rpm %{buildroot}%{_rpmdir}/%{_arch}/
 
 %files
 %{buildroot}%{_rpmdir}/%{_arch}/*.rpm
